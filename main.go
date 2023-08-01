@@ -2,20 +2,39 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 
-	"github.com/urfave/cli"
+	"github.com/spf13/viper"
+	"github.com/urfave/cli/v2"
 	"go.uber.org/fx"
 )
+
+// WizardInfo represents the information for a single Wizard101 account.
+type WizardInfo struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	XPos     int    `json:"xPos"`
+	YPos     int    `json:"yPos"`
+}
+
+// Config represents the configuration options for the program.
+type Config struct {
+	FilePath     string       `json:"filePath"`
+	AccountsData []WizardInfo `json:"accountsData"`
+}
+
+// Application represents the main application.
+type Application struct {
+	Config        *Config
+	AccountsArray []WizardInfo
+}
 
 var (
 	user32         = windows.NewLazySystemDLL("user32.dll")
@@ -25,18 +44,6 @@ var (
 	setWindowTextW = user32.NewProc("SetWindowTextW")
 	enumWindows    = user32.NewProc("EnumWindows")
 )
-
-// Config represents the configuration options for the program.
-type Config struct {
-	FilePath     string     `json:"FilePath"`
-	AccountsData [][]string `json:"AccountsData"`
-}
-
-// Application represents the main application.
-type Application struct {
-	Config        *Config
-	AccountsArray [][]string
-}
 
 // NewApplication creates a new instance of the Application.
 func NewApplication(config *Config) *Application {
@@ -151,77 +158,59 @@ func (app *Application) Run() {
 
 	i := 0
 	for handle := range newHandles {
-		wizardLogin(handle, app.Config.AccountsData[i][0], app.Config.AccountsData[i][1])
-		moveWindow(handle, atoi(app.Config.AccountsData[i][2]), atoi(app.Config.AccountsData[i][3]))
+		wizardLogin(handle, app.Config.AccountsData[i].Username, app.Config.AccountsData[i].Password)
+		moveWindow(handle, app.Config.AccountsData[i].XPos, app.Config.AccountsData[i].YPos)
 		i++
 	}
-}
-
-func atoi(s string) int {
-	num, _ := strconv.Atoi(s)
-	return num
-}
-
-// readConfigFromFile reads the configuration from the specified JSON file.
-func readConfigFromFile(filename string) (*Config, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var config Config
-	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&config)
-	if err != nil {
-		return nil, err
-	}
-
-	return &config, nil
 }
 
 func main() {
 	var configPath string
 
-	app := cli.NewApp()
-	app.Name = "Wizard101 Automation"
-	app.Usage = "Automates login to Wizard101 accounts"
-	app.Flags = []cli.Flag{
-		cli.StringFlag{
-			Name:        "config, c",
-			Value:       "config.json",
-			Usage:       "Path to the configuration file",
-			Destination: &configPath,
+	app := &cli.App{
+		Name:  "Wizard101 Automation",
+		Usage: "Automates login to Wizard101 accounts",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "config, c",
+				Value:       "config.json",
+				Usage:       "Path to the configuration file",
+				Destination: &configPath,
+			},
 		},
-	}
-	app.Action = func(c *cli.Context) error {
-		config, err := readConfigFromFile(configPath)
-		if err != nil {
-			return err
-		}
+		Action: func(c *cli.Context) error {
+			viper.SetConfigFile(configPath)
+			if err := viper.ReadInConfig(); err != nil {
+				return err
+			}
 
-		// Initialize the Application struct with the accounts data from the configuration.
-		app := NewApplication(config)
-		app.AccountsArray = config.AccountsData
+			var config Config
+			if err := viper.Unmarshal(&config); err != nil {
+				return err
+			}
 
-		fxApp := fx.New(
-			fx.Provide(func() *Config { return config }),
-			fx.Provide(func() *Application { return app }), // Provide the Application instance for injection.
-			fx.Invoke(func(app *Application) {
-				app.Run() // Call the Run method inside the fx.Invoke function.
-			}),
-		)
+			// Initialize the Application struct with the accounts data from the configuration.
+			app := NewApplication(&config)
 
-		if err := fxApp.Start(context.Background()); err != nil {
-			return err
-		}
+			fxApp := fx.New(
+				fx.Provide(func() *Config { return &config }),
+				fx.Provide(func() *Application { return app }), // Provide the Application instance for injection.
+				fx.Invoke(func(app *Application) {
+					app.Run() // Call the Run method inside the fx.Invoke function.
+				}),
+			)
 
-		// Run the application
-		if err := fxApp.Err(); err != nil {
-			return err
-		}
+			if err := fxApp.Start(context.Background()); err != nil {
+				return err
+			}
 
-		return nil
+			// Run the application
+			if err := fxApp.Err(); err != nil {
+				return err
+			}
+
+			return nil
+		},
 	}
 
 	err := app.Run(os.Args)
