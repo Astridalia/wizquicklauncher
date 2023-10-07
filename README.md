@@ -22,11 +22,20 @@ Configuration File Format
 The configuration file should have the following format:
 ```json
 {
-  "FilePath": "C:\\Users\\admin\\AppData\\Roaming\\Wizard101\\Bin",
-  "AccountsData": [
-    ["username1", "password1", "x1", "y1"],
-    ["username2", "password2", "x2", "y2"],
-    ...
+  "filePath": "C:\\Path\\To\\Wizard101\\Bin", 
+  "accountsData": [
+    {
+      "username": "user1",
+      "password": "pass1",
+      "xPos": 100,
+      "yPos": 200
+    },
+    {
+      "username": "user2",
+      "password": "pass2",
+      "xPos": 300,
+      "yPos": 400
+    }
   ]
 }
 ```
